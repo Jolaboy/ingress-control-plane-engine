@@ -7,14 +7,13 @@ A production-grade, multi-tenant **Unified Ingress Control Plane & Gateway Engin
 ## Architecture: Unified Ingress Control Plane
 ```mermaid
 flowchart TD
-    %% External Entities
+    %% Define External Nodes First
     Git["Git Repository"]
     Traffic["User Traffic"]
     Observability["Grafana / Datadog / X-Ray"]
 
+    %% Define Subgraph and Internal Nodes
     subgraph EKS ["AWS EKS Cluster"]
-        direction TB
-        
         ArgoCD["ArgoCD"]
         CP_Space["Cluster Resources"]
         Envoy["Envoy Proxy"]
@@ -22,19 +21,20 @@ flowchart TD
         GoControl["Go Control Plane<br>Watches IngressRoute CRs<br>Translates to Envoy xDS snapshots"]
         Backend["Backend Pods"]
         OTel["OTel Collector sidecar"]
-        
-        %% Internal Cluster Connections
+
+        %% Internal routing
         ArgoCD -->|Deploys CRDs & Helm| CP_Space
         Envoy -->|ext_authz gRPC| OPA
         Envoy -->|xDS gRPC LDS/CDS/RDS| GoControl
         GoControl -->|Routes to| Backend
     end
     
-    %% External to Internal Connections (Defined last to fix arrow breaking)
+    %% EXPLICIT External -> Internal Node Connections
     Git -->|GitOps sync| ArgoCD
     Traffic -->|HTTP / gRPC| Envoy
     OTel -->|Exports metrics/traces| Observability
     
+    %% Styling
     style EKS fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
 ```
 
