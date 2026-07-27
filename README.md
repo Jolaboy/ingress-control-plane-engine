@@ -4,7 +4,28 @@ A production-grade, multi-tenant **Unified Ingress Control Plane & Gateway Engin
 
 ---
 
-## Architecture
+## Architecture: Unified Ingress Control Plane
+```mermaid
+flowchart TD
+    Git["[ Git Repository ]"] -->|GitOps sync| ArgoCD["[ ArgoCD ]"]
+    
+    subgraph EKS ["AWS EKS Cluster"]
+        direction TB
+        
+        ArgoCD -->|Deploys CRDs & Helm chart| CP_Space["Cluster Resources"]
+        
+        Traffic["[ User Traffic ]"] --> Envoy["[ Envoy Proxy ]"]
+        
+        Envoy -->|ext_authz gRPC| OPA["[ OPA Sidecar ]\n(Rego policy)"]
+        Envoy -->|xDS gRPC\n(LDS / CDS / RDS)| GoControl["[ Go Control Plane ]\nWatches IngressRoute CRs via client-go\nTranslates to Envoy xDS snapshots"]
+        
+        GoControl --> Backend["[ Backend Pods ]"]
+        
+        OTel["[ OTel Collector sidecar ]"] --> Observability["Grafana / Datadog / X-Ray"]
+    end
+    
+    style EKS fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+```
 
 ```
                        [ Git Repository ]
