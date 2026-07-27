@@ -7,21 +7,21 @@ A production-grade, multi-tenant **Unified Ingress Control Plane & Gateway Engin
 ## Architecture: Unified Ingress Control Plane
 ```mermaid
 flowchart TD
-    Git["[ Git Repository ]"] -->|GitOps sync| ArgoCD["[ ArgoCD ]"]
+    Git["Git Repository"] -->|GitOps sync| ArgoCD["ArgoCD"]
     
     subgraph EKS ["AWS EKS Cluster"]
         direction TB
         
-        ArgoCD -->|Deploys CRDs & Helm chart| CP_Space["Cluster Resources"]
+        ArgoCD -->|Deploys CRDs & Helm| CP_Space["Cluster Resources"]
         
-        Traffic["[ User Traffic ]"] --> Envoy["[ Envoy Proxy ]"]
+        Traffic["User Traffic"] --> Envoy["Envoy Proxy"]
         
-        Envoy -->|ext_authz gRPC| OPA["[ OPA Sidecar ]<br>(Rego policy)"]
-        Envoy -->|xDS gRPC<br>(LDS / CDS / RDS)| GoControl["[ Go Control Plane ]<br>Watches IngressRoute CRs via client-go<br>Translates to Envoy xDS snapshots"]
+        Envoy -->|ext_authz gRPC| OPA["OPA Sidecar<br>(Rego policy)"]
+        Envoy -->|xDS gRPC LDS/CDS/RDS| GoControl["Go Control Plane<br>Watches IngressRoute CRs<br>Translates to Envoy xDS snapshots"]
         
-        GoControl --> Backend["[ Backend Pods ]"]
+        GoControl -->|Routes to| Backend["Backend Pods"]
         
-        OTel["[ OTel Collector sidecar ]"] --> Observability["Grafana / Datadog / X-Ray"]
+        OTel["OTel Collector sidecar"] -->|Exports metrics/traces| Observability["Grafana / Datadog / X-Ray"]
     end
     
     style EKS fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
