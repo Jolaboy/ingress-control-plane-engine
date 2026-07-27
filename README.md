@@ -7,22 +7,33 @@ A production-grade, multi-tenant **Unified Ingress Control Plane & Gateway Engin
 ## Architecture: Unified Ingress Control Plane
 ```mermaid
 flowchart TD
-    Git["Git Repository"] -->|GitOps sync| ArgoCD["ArgoCD"]
-    
+    %% External Entities
+    Git["Git Repository"]
+    Traffic["User Traffic"]
+    Observability["Grafana / Datadog / X-Ray"]
+
     subgraph EKS ["AWS EKS Cluster"]
         direction TB
         
-        ArgoCD -->|Deploys CRDs & Helm| CP_Space["Cluster Resources"]
+        ArgoCD["ArgoCD"]
+        CP_Space["Cluster Resources"]
+        Envoy["Envoy Proxy"]
+        OPA["OPA Sidecar<br>(Rego policy)"]
+        GoControl["Go Control Plane<br>Watches IngressRoute CRs<br>Translates to Envoy xDS snapshots"]
+        Backend["Backend Pods"]
+        OTel["OTel Collector sidecar"]
         
-        Traffic["User Traffic"] --> Envoy["Envoy Proxy"]
-        
-        Envoy -->|ext_authz gRPC| OPA["OPA Sidecar<br>(Rego policy)"]
-        Envoy -->|xDS gRPC LDS/CDS/RDS| GoControl["Go Control Plane<br>Watches IngressRoute CRs<br>Translates to Envoy xDS snapshots"]
-        
-        GoControl -->|Routes to| Backend["Backend Pods"]
-        
-        OTel["OTel Collector sidecar"] -->|Exports metrics/traces| Observability["Grafana / Datadog / X-Ray"]
+        %% Internal Cluster Connections
+        ArgoCD -->|Deploys CRDs & Helm| CP_Space
+        Envoy -->|ext_authz gRPC| OPA
+        Envoy -->|xDS gRPC LDS/CDS/RDS| GoControl
+        GoControl -->|Routes to| Backend
     end
+    
+    %% External to Internal Connections (Defined last to fix arrow breaking)
+    Git -->|GitOps sync| ArgoCD
+    Traffic -->|HTTP / gRPC| Envoy
+    OTel -->|Exports metrics/traces| Observability
     
     style EKS fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
 ```
