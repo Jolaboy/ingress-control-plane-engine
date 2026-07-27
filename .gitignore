@@ -1,0 +1,13 @@
+# Binaries and build outputs
+bin/
+obj/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE and environment files
+.vscode/
+.idea/
+.env
+*.local

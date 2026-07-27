@@ -1,0 +1,49 @@
+---
+# App-of-Apps root application.
+# Apply this single manifest to an ArgoCD instance and it will
+# self-manage the deployment of the entire Ingress Control Plane stack.
+#
+#   kubectl apply -f deploy/argocd/root-app.yaml -n argocd
+#
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: platform-ingress-root
+  namespace: argocd
+  # Finalizer ensures ArgoCD cascades deletion of child apps when this is removed
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/name: ingress-control-plane-engine
+    app.kubernetes.io/managed-by: argocd
+    environment: production
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/mphasis/ingress-control-plane-engine.git'
+    targetRevision: HEAD
+    path: deploy/argocd/apps
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: argocd
+  syncPolicy:
+    automated:
+      prune: true       # Remove resources deleted from Git
+      selfHeal: true    # Revert manual kubectl changes automatically
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  # Ignore differences in generated fields that ArgoCD can't control
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas   # HPA manages replicas — ignore drift

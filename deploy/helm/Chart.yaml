@@ -1,0 +1,23 @@
+apiVersion: v2
+name: ingress-control-plane-engine
+description: >
+  Helm chart for the Unified Ingress Control Plane & Gateway Engine.
+  Deploys the Go xDS controller, Envoy proxy, and OPA sidecar as a
+  single, cohesive unit on AWS EKS.
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - ingress
+  - envoy
+  - xds
+  - opa
+  - control-plane
+  - platform-engineering
+home: https://github.com/mphasis/ingress-control-plane-engine
+sources:
+  - https://github.com/mphasis/ingress-control-plane-engine
+maintainers:
+  - name: Platform Engineering
+    email: platform@mphasis.com
+dependencies: []

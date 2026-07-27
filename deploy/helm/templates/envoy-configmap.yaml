@@ -1,0 +1,134 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy-bootstrap
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+data:
+  envoy-bootstrap.yaml: |
+{{ .Files.Get "envoy-bootstrap.yaml" | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Values.opa.policyConfigMap }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: opa
+data:
+  policy.rego: |
+    package envoy.authz
+
+    import future.keywords.if
+    import future.keywords.in
+
+    default allow := false
+
+    allow if {
+        [_, payload, _] := io.jwt.decode(bearer_token)
+        not token_expired(payload)
+        payload.roles[_] in allowed_roles
+    }
+
+    allow if {
+        startswith(input.attributes.request.http.path, "/healthz")
+    }
+
+    allow if {
+        startswith(input.attributes.request.http.path, "/readyz")
+    }
+
+    allow if {
+        principal := input.attributes.source.principal
+        startswith(principal, "spiffe://cluster.local/ns/")
+        allowed_spiffe_prefixes[pfx]
+        startswith(principal, pfx)
+    }
+
+    allowed_roles := {"platform-admin", "service-account", "developer", "readonly"}
+
+    allowed_spiffe_prefixes := {
+        "spiffe://cluster.local/ns/platform/sa/",
+        "spiffe://cluster.local/ns/default/sa/",
+        "spiffe://cluster.local/ns/commerce/sa/",
+    }
+
+    bearer_token := token if {
+        auth_header := input.attributes.request.http.headers.authorization
+        startswith(auth_header, "Bearer ")
+        token := substring(auth_header, 7, -1)
+    }
+
+    token_expired(payload) if {
+        now_sec := time.now_ns() / 1000000000
+        payload.exp < now_sec
+    }
+{{- if .Values.otelCollector.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "icpe.fullname" . }}-otel-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  otel-collector.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: envoy
+              scrape_interval: 15s
+              static_configs:
+                - targets: ["127.0.0.1:9901"]
+              metrics_path: /stats/prometheus
+
+    processors:
+      batch:
+        timeout: 5s
+        send_batch_size: 1000
+      memory_limiter:
+        check_interval: 1s
+        limit_mib: 512
+      resource:
+        attributes:
+          - key: service.name
+            value: ingress-gateway
+            action: upsert
+          - key: k8s.cluster.name
+            value: eks-production
+            action: upsert
+
+    exporters:
+      otlp:
+        endpoint: {{ .Values.otelCollector.otlpEndpoint }}
+        tls:
+          insecure: false
+      logging:
+        loglevel: warn
+
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [memory_limiter, batch, resource]
+          exporters: [otlp]
+        metrics:
+          receivers: [otlp, prometheus]
+          processors: [memory_limiter, batch, resource]
+          exporters: [otlp]
+        logs:
+          receivers: [otlp]
+          processors: [memory_limiter, batch]
+          exporters: [otlp, logging]
+{{- end }}

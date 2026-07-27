@@ -1,0 +1,61 @@
+# ============================================================================
+# values-local.yaml — local development overrides for kind clusters.
+#
+# Differences from values.yaml (production defaults):
+#   - controller image uses the locally-built tag, imagePullPolicy=Never
+#   - Envoy service uses NodePort (no cloud LoadBalancer needed)
+#   - AWS NLB annotations removed
+#   - Leader election disabled (single-node cluster, no lease contention)
+#   - HPA disabled (kind typically has no metrics-server)
+#   - OTel collector disabled (no remote endpoint available locally)
+#   - Replica counts set to 1 to minimise resource usage on a laptop
+# ============================================================================
+
+controller:
+  image:
+    repository: ingress-control-plane-engine
+    tag: "local"
+    pullPolicy: Never          # image already loaded into kind — never pull
+
+  replicaCount: 1
+  leaderElection: false        # safe for single-replica local dev
+  logLevel: "debug"
+
+  hpa:
+    enabled: false             # kind has no metrics-server by default
+
+  pdb:
+    enabled: false             # single replica — PDB would block disruptions
+
+envoy:
+  image:
+    repository: envoyproxy/envoy
+    tag: "v1.30.1"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 1
+
+  service:
+    type: NodePort
+    port: 80
+    nodePort: 30080            # access via localhost:30080 after port-forward
+    annotations: {}            # strip AWS NLB annotations
+
+  hpa:
+    enabled: false
+
+  pdb:
+    enabled: false
+
+opa:
+  image:
+    repository: openpolicyagent/opa
+    tag: "0.65.0-envoy"
+    pullPolicy: IfNotPresent
+
+otelCollector:
+  enabled: false               # no remote collector in local dev
+
+networkPolicy:
+  enabled: false               # kind networking doesn't enforce NetworkPolicy
+                               # by default; disable to avoid confusion

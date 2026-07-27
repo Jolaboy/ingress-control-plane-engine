@@ -1,0 +1,57 @@
+{{- if .Values.controller.serviceAccount.create }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "icpe.serviceAccountName" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+  {{- with .Values.controller.serviceAccount.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+automountServiceAccountToken: true
+{{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+rules:
+  # Watch and list IngressRoute CRs
+  - apiGroups: ["platform.internal"]
+    resources: ["ingressroutes"]
+    verbs: ["get", "list", "watch"]
+  # Update IngressRoute status subresource
+  - apiGroups: ["platform.internal"]
+    resources: ["ingressroutes/status"]
+    verbs: ["get", "update", "patch"]
+  # Read ConfigMaps and Secrets (e.g. TLS certs, OPA config)
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets"]
+    verbs: ["get", "list", "watch"]
+  # Leader election lease management
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Events for status reporting
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "icpe.fullname" . }}-controller
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "icpe.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

@@ -1,0 +1,105 @@
+{{- if .Values.networkPolicy.enabled }}
+# NetworkPolicy: Controller — only accepts inbound from Envoy pods (xDS) and monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow xDS gRPC connections from Envoy pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: envoy
+      ports:
+        - protocol: TCP
+          port: 18000
+    # Allow Prometheus metrics scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow health probes from kubelet
+    - ports:
+        - protocol: TCP
+          port: 8081
+  egress:
+    # Allow Kubernetes API server access for controller-runtime
+    - ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# NetworkPolicy: Envoy — accepts inbound user traffic and exposes admin to monitoring
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: envoy
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Accept user traffic on ingress port from any source
+    - ports:
+        - protocol: TCP
+          port: 10000
+    # Allow Prometheus to scrape Envoy admin stats
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9901
+  egress:
+    # Allow connections to any backend service in the cluster
+    - ports:
+        - protocol: TCP
+          port: 8080
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 9090
+    # Allow xDS connections back to controller
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - protocol: TCP
+          port: 18000
+    # Allow DNS
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+{{- end }}

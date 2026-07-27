@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "icpe.controller.labels" . | nindent 8 }}
+      annotations:
+        {{- toYaml .Values.controller.podAnnotations | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "icpe.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: controller
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.controller.containerSecurityContext | nindent 12 }}
+          args:
+            - "--xds-addr=:{{ .Values.controller.xdsPort }}"
+            - "--metrics-addr=:{{ .Values.controller.metricsPort }}"
+            - "--probe-addr=:{{ .Values.controller.probePort }}"
+            - "--node-id={{ .Values.controller.envoyNodeID }}"
+            - "--log-level={{ .Values.controller.logLevel }}"
+            - "--leader-elect={{ .Values.controller.leaderElection }}"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - name: xds-grpc
+              containerPort: {{ .Values.controller.xdsPort }}
+              protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.controller.metricsPort }}
+              protocol: TCP
+            - name: probe
+              containerPort: {{ .Values.controller.probePort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: probe
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: probe
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+      {{- with .Values.controller.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controller.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

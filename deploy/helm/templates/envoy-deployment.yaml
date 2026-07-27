@@ -1,0 +1,172 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.envoy.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: envoy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "icpe.envoy.labels" . | nindent 8 }}
+      annotations:
+        # Force pod restart when bootstrap config changes
+        checksum/config: {{ include (print $.Template.BasePath "/envoy-configmap.yaml") . | sha256sum }}
+        {{- with .Values.envoy.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      securityContext:
+        {{- toYaml .Values.envoy.podSecurityContext | nindent 8 }}
+      terminationGracePeriodSeconds: 30
+      volumes:
+        - name: envoy-config
+          configMap:
+            name: {{ include "icpe.fullname" . }}-envoy-bootstrap
+        - name: opa-policy
+          configMap:
+            name: {{ .Values.opa.policyConfigMap }}
+        {{- if .Values.otelCollector.enabled }}
+        - name: otel-config
+          configMap:
+            name: {{ include "icpe.fullname" . }}-otel-config
+        {{- end }}
+        - name: tmp
+          emptyDir: {}
+
+      containers:
+        # -------------------------------------------------------------------
+        # 1. Envoy Proxy
+        # -------------------------------------------------------------------
+        - name: envoy
+          image: "{{ .Values.envoy.image.repository }}:{{ .Values.envoy.image.tag }}"
+          imagePullPolicy: {{ .Values.envoy.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.envoy.containerSecurityContext | nindent 12 }}
+          args:
+            - "-c"
+            - "/etc/envoy/envoy-bootstrap.yaml"
+            - "--service-cluster"
+            - "gateway-cluster"
+            - "--service-node"
+            - "{{ .Values.controller.envoyNodeID }}"
+            - "--log-level"
+            - "info"
+            - "--drain-time-s"
+            - "20"
+          volumeMounts:
+            - name: envoy-config
+              mountPath: /etc/envoy
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          ports:
+            - name: ingress
+              containerPort: {{ .Values.envoy.ingressPort }}
+              protocol: TCP
+            - name: admin
+              containerPort: {{ .Values.envoy.adminPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: admin
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: admin
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.envoy.resources | nindent 12 }}
+
+        # -------------------------------------------------------------------
+        # 2. OPA ext_authz sidecar
+        # -------------------------------------------------------------------
+        - name: opa
+          image: "{{ .Values.opa.image.repository }}:{{ .Values.opa.image.tag }}"
+          imagePullPolicy: {{ .Values.opa.image.pullPolicy }}
+          args:
+            - "run"
+            - "--server"
+            - "--addr=0.0.0.0:{{ .Values.opa.httpPort }}"
+            - "--diagnostic-addr=0.0.0.0:8283"
+            - "--set=plugins.envoy_ext_authz_grpc.addr=0.0.0.0:{{ .Values.opa.grpcPort }}"
+            - "--set=plugins.envoy_ext_authz_grpc.query=data.envoy.authz.allow"
+            - "--log-level=info"
+            - "/policy/policy.rego"
+          volumeMounts:
+            - name: opa-policy
+              mountPath: /policy
+              readOnly: true
+          ports:
+            - name: opa-grpc
+              containerPort: {{ .Values.opa.grpcPort }}
+              protocol: TCP
+            - name: opa-http
+              containerPort: {{ .Values.opa.httpPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: opa-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: opa-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            {{- toYaml .Values.opa.resources | nindent 12 }}
+
+        {{- if .Values.otelCollector.enabled }}
+        # -------------------------------------------------------------------
+        # 3. OpenTelemetry Collector sidecar
+        # -------------------------------------------------------------------
+        - name: otel-collector
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy }}
+          args:
+            - "--config=/etc/otel/otel-collector.yaml"
+          volumeMounts:
+            - name: otel-config
+              mountPath: /etc/otel
+              readOnly: true
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.otelCollector.resources | nindent 12 }}
+        {{- end }}
+
+      {{- with .Values.envoy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.envoy.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.envoy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

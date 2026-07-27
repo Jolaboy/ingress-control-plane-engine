@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+  {{- with .Values.envoy.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.envoy.service.type }}
+  selector:
+    {{- include "icpe.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: envoy
+  ports:
+    - name: http
+      port: {{ .Values.envoy.service.port }}
+      targetPort: ingress
+      protocol: TCP
+      {{- if .Values.envoy.service.nodePort }}
+      nodePort: {{ .Values.envoy.service.nodePort }}
+      {{- end }}

@@ -1,0 +1,57 @@
+---
+# Sample: Orders API route — auth required, with retry policy
+apiVersion: platform.internal/v1alpha1
+kind: IngressRoute
+metadata:
+  name: orders-api-route
+  namespace: default
+  labels:
+    team: commerce
+    tier: api
+spec:
+  prefix: /api/v1/orders
+  serviceName: order-service
+  servicePort: 8080
+  authRequired: true
+  timeoutMs: 10000
+  retryPolicy:
+    numRetries: 3
+    perTryTimeoutMs: 3000
+  rateLimit:
+    requestsPerUnit: 500
+    unit: MINUTE
+---
+# Sample: Public health-check route — no auth
+apiVersion: platform.internal/v1alpha1
+kind: IngressRoute
+metadata:
+  name: healthz-route
+  namespace: default
+  labels:
+    team: platform
+    tier: infra
+spec:
+  prefix: /healthz
+  serviceName: health-service
+  servicePort: 8081
+  authRequired: false
+  timeoutMs: 2000
+---
+# Sample: Product catalogue route — auth required
+apiVersion: platform.internal/v1alpha1
+kind: IngressRoute
+metadata:
+  name: catalogue-api-route
+  namespace: default
+  labels:
+    team: catalogue
+    tier: api
+spec:
+  prefix: /api/v1/products
+  serviceName: catalogue-service
+  servicePort: 9090
+  authRequired: true
+  timeoutMs: 8000
+  retryPolicy:
+    numRetries: 2
+    perTryTimeoutMs: 4000

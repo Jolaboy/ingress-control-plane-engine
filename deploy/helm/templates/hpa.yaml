@@ -1,0 +1,53 @@
+{{- if .Values.controller.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "icpe.fullname" . }}-controller
+  minReplicas: {{ .Values.controller.hpa.minReplicas }}
+  maxReplicas: {{ .Values.controller.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.controller.hpa.targetCPUUtilizationPercentage }}
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.controller.hpa.targetMemoryUtilizationPercentage }}
+{{- end }}
+---
+{{- if .Values.envoy.hpa.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "icpe.fullname" . }}-envoy
+  minReplicas: {{ .Values.envoy.hpa.minReplicas }}
+  maxReplicas: {{ .Values.envoy.hpa.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.envoy.hpa.targetCPUUtilizationPercentage }}
+{{- end }}

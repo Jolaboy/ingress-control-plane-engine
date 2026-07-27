@@ -1,0 +1,31 @@
+{{- if .Values.controller.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.controller.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: controller
+{{- end }}
+---
+{{- if .Values.envoy.pdb.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.envoy.pdb.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "icpe.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: envoy
+{{- end }}

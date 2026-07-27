@@ -1,0 +1,214 @@
+# Default values for ingress-control-plane-engine.
+# Override with -f <custom-values.yaml> or --set key=value
+
+# ---------------------------------------------------------------------------
+# Global
+# ---------------------------------------------------------------------------
+global:
+  # imageRegistry can be used to prepend a private ECR registry to all images
+  imageRegistry: ""
+  # imagePullSecrets for ECR or other private registries
+  imagePullSecrets: []
+
+# ---------------------------------------------------------------------------
+# Go Control Plane (xDS Controller)
+# ---------------------------------------------------------------------------
+controller:
+  image:
+    repository: ghcr.io/mphasis/ingress-control-plane-engine
+    tag: "1.0.0"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  # Resource requests / limits sized for production EKS nodes
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "256Mi"
+
+  # xDS gRPC server port
+  xdsPort: 18000
+  # Prometheus metrics port
+  metricsPort: 8080
+  # Health probe port
+  probePort: 8081
+
+  # Envoy node ID this controller manages (must match envoy-bootstrap.yaml node.id)
+  envoyNodeID: "envoy-ingress-node-1"
+
+  # Leader election — disable only for single-replica dev environments
+  leaderElection: true
+
+  # Log level: debug | info | warn | error
+  logLevel: "info"
+
+  serviceAccount:
+    create: true
+    name: ""
+    annotations: {}
+    # Example for IRSA (IAM Roles for Service Accounts):
+    # eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/control-plane-role
+
+  # Pod-level annotations (e.g. for Prometheus scraping)
+  podAnnotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]
+
+  # Node affinity / tolerations for dedicated node pools
+  nodeSelector: {}
+  tolerations: []
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchExpressions:
+                - key: app.kubernetes.io/component
+                  operator: In
+                  values: ["controller"]
+            topologyKey: kubernetes.io/hostname
+
+  # Horizontal Pod Autoscaler
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 70
+    targetMemoryUtilizationPercentage: 80
+
+  # Pod Disruption Budget — guarantees at least one pod available during upgrades
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# Envoy Proxy
+# ---------------------------------------------------------------------------
+envoy:
+  image:
+    repository: envoyproxy/envoy
+    tag: "v1.30.1"
+    pullPolicy: IfNotPresent
+
+  replicaCount: 2
+
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "512Mi"
+
+  # Port Envoy listens on for ingress traffic
+  ingressPort: 10000
+  # Admin interface port (internal only)
+  adminPort: 9901
+
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 10000
+    annotations:
+      # AWS NLB for low-latency TCP passthrough
+      service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+      service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+
+  podAnnotations: {}
+
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+  hpa:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 20
+    targetCPUUtilizationPercentage: 60
+
+  pdb:
+    enabled: true
+    minAvailable: 1
+
+# ---------------------------------------------------------------------------
+# OPA Sidecar (injected into Envoy pods)
+# ---------------------------------------------------------------------------
+opa:
+  image:
+    repository: openpolicyagent/opa
+    tag: "0.65.0-envoy"
+    pullPolicy: IfNotPresent
+
+  # gRPC port OPA listens on for ext_authz requests from Envoy
+  grpcPort: 9191
+  # HTTP port for OPA REST API and health checks
+  httpPort: 8282
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+  # Rego policy ConfigMap name — policy.rego is mounted from this ConfigMap
+  policyConfigMap: "opa-policy"
+
+# ---------------------------------------------------------------------------
+# OpenTelemetry Collector sidecar
+# ---------------------------------------------------------------------------
+otelCollector:
+  enabled: true
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.100.0"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "128Mi"
+
+  # OTLP exporter endpoint (e.g. Grafana Cloud, Datadog, AWS X-Ray)
+  otlpEndpoint: "http://otel-collector.observability.svc.cluster.local:4317"
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy — restrict pod-to-pod traffic
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# CRD installation (disable if managing CRDs separately via GitOps)
+# ---------------------------------------------------------------------------
+installCRDs: true

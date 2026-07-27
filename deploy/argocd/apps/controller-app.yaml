@@ -1,0 +1,75 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-control-plane-crds
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: ingress-control-plane-engine
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/mphasis/ingress-control-plane-engine.git'
+    targetRevision: HEAD
+    path: apps/crds
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - Replace=true   # CRDs should be replaced, not patched
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ingress-control-plane-engine
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+  labels:
+    app.kubernetes.io/part-of: ingress-control-plane-engine
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/mphasis/ingress-control-plane-engine.git'
+    targetRevision: HEAD
+    path: deploy/helm
+    helm:
+      releaseName: icpe
+      valueFiles:
+        - values.yaml
+      # Production overrides — use a separate values-production.yaml in real envs
+      parameters:
+        - name: controller.replicaCount
+          value: "2"
+        - name: envoy.replicaCount
+          value: "2"
+        - name: controller.leaderElection
+          value: "true"
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - PruneLast=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas

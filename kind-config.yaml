@@ -1,0 +1,20 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: icpe-local
+nodes:
+  - role: control-plane
+    kubeadmConfigPatches:
+      - |
+        kind: InitConfiguration
+        nodeRegistration:
+          kubeletExtraArgs:
+            node-labels: "ingress-ready=true"
+    extraPortMappings:
+      # Envoy NodePort 30080 → localhost:8088 for smoke testing
+      - containerPort: 30080
+        hostPort: 8088
+        protocol: TCP
+      # xDS gRPC port — useful for grpcurl debugging
+      - containerPort: 30180
+        hostPort: 18001
+        protocol: TCP

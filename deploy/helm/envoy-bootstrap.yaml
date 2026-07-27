@@ -1,0 +1,73 @@
+# Envoy Proxy bootstrap configuration.
+# This file is mounted as a ConfigMap into the Envoy container at startup.
+# Envoy connects to the Go control plane via ADS (Aggregated Discovery Service)
+# over gRPC on port 18000 and fetches Listeners, Routes, and Clusters dynamically.
+#
+# Static resources defined here are ONLY the xds_cluster itself — everything
+# else (application routes, upstream clusters) comes from the control plane.
+
+node:
+  id: envoy-ingress-node-1
+  cluster: gateway-cluster
+  metadata:
+    environment: production
+    region: eu-west-2
+
+# Dynamic resource configuration — all types fetched via the xDS control plane
+dynamic_resources:
+  ads_config:
+    api_type: GRPC
+    transport_api_version: V3
+    grpc_services:
+      - envoy_grpc:
+          cluster_name: xds_cluster
+    set_node_on_first_message_only: true
+  cds_config:
+    resource_api_version: V3
+    ads: {}
+  lds_config:
+    resource_api_version: V3
+    ads: {}
+
+# Static resources: only the xDS management server cluster
+static_resources:
+  clusters:
+    - name: xds_cluster
+      connect_timeout: 5s
+      type: STRICT_DNS
+      lb_policy: ROUND_ROBIN
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
+      load_assignment:
+        cluster_name: xds_cluster
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      # Resolves to the Go controller Service inside the cluster
+                      address: control-plane-service.default.svc.cluster.local
+                      port_value: 18000
+
+# Admin interface — only reachable inside the pod (not exposed via Service)
+admin:
+  address:
+    socket_address:
+      address: 0.0.0.0   # bind on all interfaces so kubelet probes can reach it
+      port_value: 9901
+  access_log:
+    - name: envoy.access_loggers.stdout
+      typed_config:
+        "@type": type.googleapis.com/envoy.extensions.access_loggers.stream.v3.StdoutAccessLog
+
+# Layered runtime flags — tune Envoy behaviour without restarting
+layered_runtime:
+  layers:
+    - name: static_layer
+      static_layer:
+        envoy.reloadable_features.http_default_scheme: "https"
+        overload:
+          global_downstream_max_connections: 50000
