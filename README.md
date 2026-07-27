@@ -16,8 +16,8 @@ flowchart TD
         
         Traffic["[ User Traffic ]"] --> Envoy["[ Envoy Proxy ]"]
         
-        Envoy -->|ext_authz gRPC| OPA["[ OPA Sidecar ]\n(Rego policy)"]
-        Envoy -->|xDS gRPC\n(LDS / CDS / RDS)| GoControl["[ Go Control Plane ]\nWatches IngressRoute CRs via client-go\nTranslates to Envoy xDS snapshots"]
+        Envoy -->|ext_authz gRPC| OPA["[ OPA Sidecar ]<br>(Rego policy)"]
+        Envoy -->|xDS gRPC<br>(LDS / CDS / RDS)| GoControl["[ Go Control Plane ]<br>Watches IngressRoute CRs via client-go<br>Translates to Envoy xDS snapshots"]
         
         GoControl --> Backend["[ Backend Pods ]"]
         
@@ -25,31 +25,6 @@ flowchart TD
     end
     
     style EKS fill:transparent,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
-```
-
-```
-                       [ Git Repository ]
-                               │
-                               ▼  GitOps sync
-                           [ ArgoCD ]
-                               │
-                               ▼  Deploys CRDs & Helm chart
-                  ┌────────────────────────────────────────────┐
-                  │               AWS EKS Cluster              │
-                  │                                            │
- [ User Traffic ] │──► [ Envoy Proxy ] ──(ext_authz gRPC)──► [ OPA Sidecar ]
-                  │          │                                  (Rego policy)
-                  │          │  xDS gRPC (LDS / CDS / RDS)
-                  │          ▼
-                  │  [ Go Control Plane ]
-                  │    Watches IngressRoute CRs via client-go
-                  │    Translates to Envoy xDS snapshots
-                  │          │
-                  │          ▼
-                  │  [ Backend Pods ]
-                  │
-                  │  [ OTel Collector sidecar ] ──► Grafana / Datadog / X-Ray
-                  └────────────────────────────────────────────┘
 ```
 
 ### Component Responsibilities
