@@ -15,7 +15,7 @@ global:
 # ---------------------------------------------------------------------------
 controller:
   image:
-    repository: ghcr.io/mphasis/ingress-control-plane-engine
+    repository: ghcr.io/Jolaboy/ingress-control-plane-engine
     tag: "1.0.0"
     pullPolicy: IfNotPresent
 
@@ -207,6 +207,45 @@ otelCollector:
 # ---------------------------------------------------------------------------
 networkPolicy:
   enabled: true
+
+# ---------------------------------------------------------------------------
+# mTLS for the xDS control-plane <-> Envoy channel (cert-manager managed)
+# ---------------------------------------------------------------------------
+tls:
+  # Enable mutual TLS on the xDS gRPC channel. When true the controller loads
+  # its server cert/key/CA and Envoy presents a client cert over the channel.
+  enabled: true
+
+  certManager:
+    # Provision the internal PKI (self-signed root -> CA -> leaf certs) via
+    # cert-manager. Set false to supply the secrets below out-of-band.
+    enabled: true
+
+  # Secret names produced by cert-manager and consumed by the workloads.
+  caSecretName: "icpe-xds-ca"
+  controllerSecretName: "icpe-controller-xds-tls"
+  envoySecretName: "icpe-envoy-xds-tls"
+
+  # Certificate lifetimes. Leaf certs rotate automatically well before expiry.
+  caDuration: "87600h"   # 10 years for the internal CA
+  certDuration: "2160h"  # 90 days for leaf certs
+  renewBefore: "360h"    # rotate 15 days before expiry
+
+# ---------------------------------------------------------------------------
+# External Secrets Operator — sync secrets from AWS Secrets Manager (KMS)
+# ---------------------------------------------------------------------------
+externalSecrets:
+  # Disabled by default — requires the External Secrets Operator + IRSA setup.
+  enabled: false
+  region: "eu-west-2"
+  refreshInterval: "1h"
+  # Name of the Kubernetes Secret the operator materialises.
+  targetSecretName: "icpe-jwt-signing-key"
+  # Mapping of remote AWS Secrets Manager keys to local secret keys.
+  data:
+    - secretKey: "jwt-public-key"
+      remoteKey: "platform/ingress/jwt"
+      property: "public_key"
 
 # ---------------------------------------------------------------------------
 # CRD installation (disable if managing CRDs separately via GitOps)

@@ -42,6 +42,11 @@ spec:
           configMap:
             name: {{ include "icpe.fullname" . }}-otel-config
         {{- end }}
+        {{- if .Values.tls.enabled }}
+        - name: xds-tls
+          secret:
+            secretName: {{ .Values.tls.envoySecretName }}
+        {{- end }}
         - name: tmp
           emptyDir: {}
 
@@ -69,6 +74,11 @@ spec:
             - name: envoy-config
               mountPath: /etc/envoy
               readOnly: true
+            {{- if .Values.tls.enabled }}
+            - name: xds-tls
+              mountPath: /etc/envoy-tls
+              readOnly: true
+            {{- end }}
             - name: tmp
               mountPath: /tmp
           ports:

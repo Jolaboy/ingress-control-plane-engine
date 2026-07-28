@@ -23,8 +23,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/mphasis/ingress-control-plane-engine/pkg/controller"
-	"github.com/mphasis/ingress-control-plane-engine/pkg/xds"
+	"github.com/Jolaboy/ingress-control-plane-engine/pkg/controller"
+	"github.com/Jolaboy/ingress-control-plane-engine/pkg/xds"
 )
 
 // ---------------------------------------------------------------------------
@@ -49,6 +49,9 @@ type config struct {
 	nodeID      string
 	logLevel    string
 	syncPeriod  time.Duration
+	tlsCertFile string
+	tlsKeyFile  string
+	tlsCAFile   string
 }
 
 func parseConfig() config {
@@ -67,6 +70,12 @@ func parseConfig() config {
 		"Log level: debug | info | warn | error")
 	flag.DurationVar(&cfg.syncPeriod, "sync-period", 10*time.Minute,
 		"Full re-sync period for the controller cache")
+	flag.StringVar(&cfg.tlsCertFile, "tls-cert-file", envOr("TLS_CERT_FILE", ""),
+		"Path to the xDS server TLS certificate (enables mutual TLS when set with key and CA)")
+	flag.StringVar(&cfg.tlsKeyFile, "tls-key-file", envOr("TLS_KEY_FILE", ""),
+		"Path to the xDS server TLS private key")
+	flag.StringVar(&cfg.tlsCAFile, "tls-ca-file", envOr("TLS_CA_FILE", ""),
+		"Path to the CA bundle used to verify Envoy client certificates")
 	flag.Parse()
 	return cfg
 }
@@ -95,7 +104,18 @@ func main() {
 	// -----------------------------------------------------------------------
 	// 1. xDS Server
 	// -----------------------------------------------------------------------
-	xdsSrv := xds.NewServer(logger)
+	var xdsOpts []xds.Option
+	if cfg.tlsCertFile != "" && cfg.tlsKeyFile != "" && cfg.tlsCAFile != "" {
+		xdsOpts = append(xdsOpts, xds.WithMTLS(xds.TLSConfig{
+			CertFile: cfg.tlsCertFile,
+			KeyFile:  cfg.tlsKeyFile,
+			CAFile:   cfg.tlsCAFile,
+		}))
+		logger.Info("xDS mutual TLS enabled", "certFile", cfg.tlsCertFile)
+	} else {
+		logger.Warn("xDS mutual TLS disabled — control-plane channel is plaintext")
+	}
+	xdsSrv := xds.NewServer(logger, xdsOpts...)
 
 	// Push an empty initial snapshot so Envoy doesn't hang waiting for one
 	if err := xdsSrv.UpdateSnapshot(cfg.nodeID, nil); err != nil {

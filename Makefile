@@ -19,7 +19,7 @@
 BINARY_NAME     := control-plane
 CMD_DIR         := ./cmd/controller
 BUILD_DIR       := ./bin
-IMAGE_REPO      ?= ghcr.io/mphasis/ingress-control-plane-engine
+IMAGE_REPO      ?= ghcr.io/Jolaboy/ingress-control-plane-engine
 IMAGE_TAG       ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 DOCKER_IMAGE    := $(IMAGE_REPO):$(IMAGE_TAG)
 HELM_CHART      := ./deploy/helm

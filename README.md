@@ -106,6 +106,7 @@ ingress-control-plane-engine/
 | Control Plane | Go 1.22, client-go, controller-runtime v0.17, go-control-plane v0.12 |
 | Security | OPA v0.65 (Rego), JWT validation, SPIFFE/mTLS |
 | GitOps | ArgoCD — App-of-Apps pattern |
+| Config & Secrets | cert-manager (xDS mTLS PKI), External Secrets Operator (AWS Secrets Manager / KMS) |
 | Observability | OpenTelemetry Collector, Envoy stats, structured JSON logs |
 | High Availability | HPA, PodDisruptionBudgets, leader election, NetworkPolicies |
 
@@ -215,6 +216,49 @@ For routes with `authRequired: false`, Envoy bypasses the `ext_authz` filter ent
 
 ---
 
+## mTLS & Secrets Management
+
+### Mutual TLS on the xDS channel
+
+The control-plane ↔ Envoy xDS gRPC channel is secured with **mutual TLS** (enabled by default via `tls.enabled=true`). cert-manager provisions an internal PKI and rotates the leaf certificates automatically:
+
+```
+selfSigned Issuer ─► CA Certificate (isCA) ─► CA Issuer
+                                              ├─► controller (xDS server) cert
+                                              └─► envoy (xDS client) cert
+```
+
+- The Go controller loads its server cert/key/CA from `/etc/xds/tls` and requires a verified client certificate (`RequireAndVerifyClientCert`). Key material is re-read on every handshake, so rotation needs no restart.
+- Envoy presents its client cert from `/etc/envoy-tls` and validates the control-plane server certificate SAN against the shared CA.
+
+```yaml
+tls:
+  enabled: true
+  certManager:
+    enabled: true          # provision the PKI via cert-manager
+  certDuration: "2160h"    # 90-day leaf certs, auto-rotated
+  renewBefore: "360h"
+```
+
+Disable it for local `kind` clusters with `--set tls.enabled=false` (already set in `values-local.yaml`). When disabled, the controller logs a warning and serves plaintext xDS.
+
+### External Secrets (AWS Secrets Manager / KMS)
+
+Sensitive material such as the JWT verification key is synced from AWS Secrets Manager — backed by AWS KMS — into a native Kubernetes Secret via the External Secrets Operator. Authentication uses the controller ServiceAccount through IRSA, so no static AWS credentials live in the cluster:
+
+```yaml
+externalSecrets:
+  enabled: true
+  region: "eu-west-2"
+  targetSecretName: "icpe-jwt-signing-key"
+  data:
+    - secretKey: "jwt-public-key"
+      remoteKey: "platform/ingress/jwt"
+      property: "public_key"
+```
+
+---
+
 ## Observability
 
 The OTel Collector sidecar (enabled by default) exposes:
@@ -281,5 +325,6 @@ make help
 - Envoy container drops all Linux capabilities
 - NetworkPolicies restrict pod-to-pod traffic to only necessary paths
 - OPA runs with `failureModeAllow: false` by default — if OPA is unreachable, Envoy rejects requests
-- TLS for the xDS gRPC channel should be enabled in production using cert-manager; the bootstrap config supports it via `upstreamTlsContext`
+- The xDS gRPC channel is secured with mutual TLS by default (`tls.enabled=true`), with certificates provisioned and rotated by cert-manager
+- Secrets are sourced from AWS Secrets Manager (KMS-backed) via the External Secrets Operator — no static credentials in-cluster
 - IRSA (IAM Roles for Service Accounts) is supported via `controller.serviceAccount.annotations`

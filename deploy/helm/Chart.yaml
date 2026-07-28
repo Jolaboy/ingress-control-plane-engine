@@ -14,10 +14,10 @@ keywords:
   - opa
   - control-plane
   - platform-engineering
-home: https://github.com/mphasis/ingress-control-plane-engine
+home: https://github.com/Jolaboy/ingress-control-plane-engine
 sources:
-  - https://github.com/mphasis/ingress-control-plane-engine
+  - https://github.com/Jolaboy/ingress-control-plane-engine
 maintainers:
   - name: Platform Engineering
-    email: platform@mphasis.com
+    email: platform@Jolaboy.com
 dependencies: []

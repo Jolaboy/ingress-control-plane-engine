@@ -59,3 +59,10 @@ otelCollector:
 networkPolicy:
   enabled: false               # kind networking doesn't enforce NetworkPolicy
                                # by default; disable to avoid confusion
+
+tls:
+  enabled: false               # no cert-manager in kind by default; run the
+                               # xDS channel in plaintext for local dev
+
+externalSecrets:
+  enabled: false               # no AWS Secrets Manager / IRSA locally

@@ -20,7 +20,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: 'https://github.com/mphasis/ingress-control-plane-engine.git'
+    repoURL: 'https://github.com/Jolaboy/ingress-control-plane-engine.git'
     targetRevision: HEAD
     path: deploy/argocd/apps
   destination:

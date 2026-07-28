@@ -5,7 +5,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/mphasis/ingress-control-plane-engine/pkg/xds"
+	"github.com/Jolaboy/ingress-control-plane-engine/pkg/xds"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 

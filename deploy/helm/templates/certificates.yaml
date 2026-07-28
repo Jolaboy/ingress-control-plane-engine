@@ -1,0 +1,109 @@
+{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+# ============================================================================
+# cert-manager PKI for the xDS control-plane <-> Envoy mutual-TLS channel.
+#
+# Bootstrap chain:
+#   selfSigned Issuer ──► CA Certificate (isCA) ──► CA Issuer
+#                                                       │
+#                        ┌──────────────────────────────┴───────────────┐
+#                        ▼                                              ▼
+#            controller (xDS server) cert                 envoy (xDS client) cert
+#
+# cert-manager rotates the leaf secrets in place; both the Go server and Envoy
+# reload the material without a restart.
+# ============================================================================
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "icpe.fullname" . }}-selfsigned
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.labels" . | nindent 4 }}
+spec:
+  selfSigned: {}
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "icpe.fullname" . }}-xds-ca
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.labels" . | nindent 4 }}
+spec:
+  isCA: true
+  commonName: icpe-xds-ca
+  secretName: {{ .Values.tls.caSecretName }}
+  duration: {{ .Values.tls.caDuration }}
+  renewBefore: {{ .Values.tls.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  issuerRef:
+    name: {{ include "icpe.fullname" . }}-selfsigned
+    kind: Issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ include "icpe.fullname" . }}-xds-ca-issuer
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.labels" . | nindent 4 }}
+spec:
+  ca:
+    secretName: {{ .Values.tls.caSecretName }}
+---
+# xDS server certificate presented by the Go control plane.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "icpe.fullname" . }}-controller-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.controller.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.tls.controllerSecretName }}
+  duration: {{ .Values.tls.certDuration }}
+  renewBefore: {{ .Values.tls.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - control-plane-service
+    - control-plane-service.{{ .Release.Namespace }}
+    - control-plane-service.{{ .Release.Namespace }}.svc
+    - control-plane-service.{{ .Release.Namespace }}.svc.cluster.local
+  issuerRef:
+    name: {{ include "icpe.fullname" . }}-xds-ca-issuer
+    kind: Issuer
+---
+# xDS client certificate presented by Envoy when connecting to the control plane.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ include "icpe.fullname" . }}-envoy-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "icpe.envoy.labels" . | nindent 4 }}
+spec:
+  secretName: {{ .Values.tls.envoySecretName }}
+  duration: {{ .Values.tls.certDuration }}
+  renewBefore: {{ .Values.tls.renewBefore }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Always
+  usages:
+    - client auth
+  dnsNames:
+    - {{ include "icpe.fullname" . }}-envoy.{{ .Release.Namespace }}.svc.cluster.local
+  uris:
+    - spiffe://cluster.local/ns/{{ .Release.Namespace }}/sa/envoy
+  issuerRef:
+    name: {{ include "icpe.fullname" . }}-xds-ca-issuer
+    kind: Issuer
+{{- end }}

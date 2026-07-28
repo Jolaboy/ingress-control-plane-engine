@@ -41,6 +41,31 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
           explicit_http_config:
             http2_protocol_options: {}
+{{- if .Values.tls.enabled }}
+      # Mutual TLS to the Go control plane. Envoy presents its client cert and
+      # validates the control-plane server cert against the shared CA. Certs are
+      # provisioned by cert-manager and mounted at /etc/envoy-tls.
+      transport_socket:
+        name: envoy.transport_sockets.tls
+        typed_config:
+          "@type": type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext
+          sni: control-plane-service.{{ .Release.Namespace }}.svc.cluster.local
+          common_tls_context:
+            tls_params:
+              tls_minimum_protocol_version: TLSv1_2
+            tls_certificates:
+              - certificate_chain:
+                  filename: /etc/envoy-tls/tls.crt
+                private_key:
+                  filename: /etc/envoy-tls/tls.key
+            validation_context:
+              trusted_ca:
+                filename: /etc/envoy-tls/ca.crt
+              match_typed_subject_alt_names:
+                - san_type: DNS
+                  matcher:
+                    exact: control-plane-service.{{ .Release.Namespace }}.svc.cluster.local
+{{- end }}
       load_assignment:
         cluster_name: xds_cluster
         endpoints:
@@ -49,7 +74,7 @@ static_resources:
                   address:
                     socket_address:
                       # Resolves to the Go controller Service inside the cluster
-                      address: control-plane-service.default.svc.cluster.local
+                      address: control-plane-service.{{ .Release.Namespace }}.svc.cluster.local
                       port_value: 18000
 
 # Admin interface — only reachable inside the pod (not exposed via Service)

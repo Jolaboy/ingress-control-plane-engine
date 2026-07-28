@@ -27,6 +27,12 @@ spec:
       securityContext:
         {{- toYaml .Values.controller.podSecurityContext | nindent 8 }}
       terminationGracePeriodSeconds: 30
+      {{- if .Values.tls.enabled }}
+      volumes:
+        - name: xds-tls
+          secret:
+            secretName: {{ .Values.tls.controllerSecretName }}
+      {{- end }}
       containers:
         - name: controller
           image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
@@ -40,6 +46,11 @@ spec:
             - "--node-id={{ .Values.controller.envoyNodeID }}"
             - "--log-level={{ .Values.controller.logLevel }}"
             - "--leader-elect={{ .Values.controller.leaderElection }}"
+            {{- if .Values.tls.enabled }}
+            - "--tls-cert-file=/etc/xds/tls/tls.crt"
+            - "--tls-key-file=/etc/xds/tls/tls.key"
+            - "--tls-ca-file=/etc/xds/tls/ca.crt"
+            {{- end }}
           env:
             - name: POD_NAME
               valueFrom:
@@ -49,6 +60,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+          {{- if .Values.tls.enabled }}
+          volumeMounts:
+            - name: xds-tls
+              mountPath: /etc/xds/tls
+              readOnly: true
+          {{- end }}
           ports:
             - name: xds-grpc
               containerPort: {{ .Values.controller.xdsPort }}

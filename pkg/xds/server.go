@@ -6,9 +6,12 @@ package xds
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 
 	clusterservice "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
@@ -19,6 +22,7 @@ import (
 	"github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	"github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 
@@ -31,6 +35,32 @@ const (
 	DefaultNodeID = "envoy-ingress-node-1"
 )
 
+// TLSConfig holds the file paths for the xDS server's mutual-TLS material.
+// When supplied via WithMTLS, the gRPC server requires and verifies a client
+// certificate (Envoy) signed by the configured CA. All files are re-read on
+// every TLS handshake so cert-manager can rotate them without a pod restart.
+type TLSConfig struct {
+	// CertFile is the PEM-encoded xDS server certificate.
+	CertFile string
+	// KeyFile is the PEM-encoded xDS server private key.
+	KeyFile string
+	// CAFile is the PEM-encoded CA bundle used to verify Envoy client certs.
+	CAFile string
+}
+
+// Option configures an xDS Server at construction time.
+type Option func(*serverOptions)
+
+type serverOptions struct {
+	tls *TLSConfig
+}
+
+// WithMTLS enables mutual TLS on the xDS gRPC server using the supplied
+// certificate, key, and client-CA files.
+func WithMTLS(tc TLSConfig) Option {
+	return func(o *serverOptions) { o.tls = &tc }
+}
+
 // Server wraps an Envoy xDS cache and gRPC server.
 type Server struct {
 	cache   cache.SnapshotCache
@@ -41,7 +71,13 @@ type Server struct {
 }
 
 // NewServer creates an initialised xDS Server but does not start it yet.
-func NewServer(logger *slog.Logger) *Server {
+// Pass WithMTLS(...) to secure the xDS gRPC channel with mutual TLS.
+func NewServer(logger *slog.Logger, opts ...Option) *Server {
+	o := &serverOptions{}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	snapshotCache := cache.NewSnapshotCache(
 		false,          // ads — false means per-resource-type watches are independent
 		cache.IDHash{}, // hash function for node IDs
@@ -50,13 +86,25 @@ func NewServer(logger *slog.Logger) *Server {
 
 	xdsSrv := server.NewServer(context.Background(), snapshotCache, nil)
 
-	grpcSrv := grpc.NewServer(
+	grpcOpts := []grpc.ServerOption{
 		grpc.MaxConcurrentStreams(1000),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:    30 * time.Second,
 			Timeout: 10 * time.Second,
 		}),
-	)
+	}
+
+	// Enable mutual TLS when configured. Credentials reload the key material
+	// from disk on every handshake, so cert-manager rotation is transparent.
+	if o.tls != nil {
+		grpcOpts = append(grpcOpts, grpc.Creds(credentials.NewTLS(newServerTLSConfig(*o.tls))))
+		logger.Info("xDS gRPC server secured with mutual TLS",
+			"certFile", o.tls.CertFile,
+			"caFile", o.tls.CAFile,
+		)
+	}
+
+	grpcSrv := grpc.NewServer(grpcOpts...)
 
 	// Register all xDS discovery services
 	discoverygrpc.RegisterAggregatedDiscoveryServiceServer(grpcSrv, xdsSrv)
@@ -72,6 +120,43 @@ func NewServer(logger *slog.Logger) *Server {
 		cache:   snapshotCache,
 		grpcSrv: grpcSrv,
 		logger:  logger,
+	}
+}
+
+// newServerTLSConfig builds a *tls.Config that enforces mutual TLS and reloads
+// the server keypair and client-CA bundle from disk on each handshake. This
+// keeps long-lived Envoy connections valid across cert-manager rotations.
+func newServerTLSConfig(tc TLSConfig) *tls.Config {
+	loadCert := func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+		cert, err := tls.LoadX509KeyPair(tc.CertFile, tc.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("xds: load server keypair: %w", err)
+		}
+		return &cert, nil
+	}
+
+	return &tls.Config{
+		MinVersion:     tls.VersionTLS12,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
+		GetCertificate: loadCert,
+		// GetConfigForClient re-reads the client CA on every handshake so a
+		// rotated CA bundle is picked up without restarting the controller.
+		GetConfigForClient: func(*tls.ClientHelloInfo) (*tls.Config, error) {
+			caPEM, err := os.ReadFile(tc.CAFile)
+			if err != nil {
+				return nil, fmt.Errorf("xds: read client CA %s: %w", tc.CAFile, err)
+			}
+			pool := x509.NewCertPool()
+			if !pool.AppendCertsFromPEM(caPEM) {
+				return nil, fmt.Errorf("xds: no valid certificates in client CA %s", tc.CAFile)
+			}
+			return &tls.Config{
+				MinVersion:     tls.VersionTLS12,
+				ClientAuth:     tls.RequireAndVerifyClientCert,
+				ClientCAs:      pool,
+				GetCertificate: loadCert,
+			}, nil
+		},
 	}
 }
 
